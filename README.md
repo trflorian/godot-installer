@@ -6,10 +6,8 @@ checksum verification, and an application launcher.
 Requires Bash, `curl`, `jq`, `unzip`, and GNU coreutils.
 
 ```sh
-./install.sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/trflorian/godot-installer/main/install.sh)"
 ```
-
-Use `./install.sh --help` for options.
 
 ```text
 Godot installer
