@@ -3,10 +3,17 @@ set -euo pipefail
 
 bold= cyan= green= yellow= red= reset=
 if [[ -t 1 && ${TERM:-dumb} != dumb && -z ${NO_COLOR+x} ]]; then
-    bold=$'\e[1m'; cyan=$'\e[36m'; green=$'\e[32m'
-    yellow=$'\e[33m'; red=$'\e[31m'; reset=$'\e[0m'
+    bold=$'\e[1m'
+    cyan=$'\e[36m'
+    green=$'\e[32m'
+    yellow=$'\e[33m'
+    red=$'\e[31m'
+    reset=$'\e[0m'
 fi
-fail() { printf '%sError:%s %s\n' "$red" "$reset" "$*" >&2; exit 1; }
+fail() {
+    printf '%sError:%s %s\n' "$red" "$reset" "$*" >&2
+    exit 1
+}
 step() { printf '\n%s›%s %s\n' "$cyan" "$reset" "$*"; }
 
 # Small arrow-key menu: no extra dependency or persistent terminal-mode changes.
@@ -32,12 +39,16 @@ choose() {
             key+=$tail
         fi
         case $key in
-            $'\e[A'|$'\eOA'|k) selected=$(((selected + ${#options[@]} - 1) % ${#options[@]})) ;;
-            $'\e[B'|$'\eOB'|j) selected=$(((selected + 1) % ${#options[@]})) ;;
+            $'\e[A' | $'\eOA' | k) selected=$(((selected + ${#options[@]} - 1) % ${#options[@]})) ;;
+            $'\e[B' | $'\eOB' | j) selected=$(((selected + 1) % ${#options[@]})) ;;
             '')
                 printf '\033[%dA\033[J  %s✓ %s%s\n' "${#options[@]}" "$green" "${options[selected]}" "$reset"
-                return ;;
-            q|$'\e') printf '\nCancelled.\n'; exit 0 ;;
+                return
+                ;;
+            q | $'\e')
+                printf '\nCancelled.\n'
+                exit 0
+                ;;
         esac
         printf '\033[%dA' "${#options[@]}"
     done
@@ -47,17 +58,19 @@ fetch() { curl --proto '=https' --proto-redir '=https' -fLsS --connect-timeout 1
 scope= dir= version= mode=install yes=false
 while (($#)); do
     case "$1" in
-        --local|--global)
+        --local | --global)
             [[ -z $scope || $scope == "$1" ]] || fail 'Choose --local or --global.'
-            scope=$1 ;;
-        --dir|--version)
+            scope=$1
+            ;;
+        --dir | --version)
             (($# >= 2)) && [[ -n $2 && $2 != --* ]] || fail "$1 needs a value."
             if [[ $1 == --dir ]]; then dir=$2; else version=$2; fi
-            shift ;;
+            shift
+            ;;
         --list) mode=list ;;
         --check) mode=check ;;
-        -y|--yes) yes=true ;;
-        -h|--help)
+        -y | --yes) yes=true ;;
+        -h | --help)
             cat <<'EOF'
 Usage: ./install.sh [options]
   --list           Show installed version and recent stable/unstable releases
@@ -70,7 +83,8 @@ Usage: ./install.sh [options]
   -h, --help       Show help
 Requires Bash, curl, jq, unzip, and GNU coreutils. Standard editor only, no .NET.
 EOF
-            exit ;;
+            exit
+            ;;
         *) fail "Unknown option: $1" ;;
     esac
     shift
@@ -83,8 +97,10 @@ for tool in curl jq unzip install realpath sha256sum sha512sum timeout; do
     command -v "$tool" >/dev/null || fail "Missing dependency: $tool"
 done
 case $(uname -m) in
-    x86_64|amd64) arch=x86_64 ;; aarch64|arm64) arch=arm64 ;;
-    armv7l) arch=arm32 ;; i386|i686) arch=x86_32 ;;
+    x86_64 | amd64) arch=x86_64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    armv7l) arch=arm32 ;;
+    i386 | i686) arch=x86_32 ;;
     *) fail 'Unsupported architecture.' ;;
 esac
 
@@ -98,35 +114,34 @@ else
     printf '%sInstalled:%s not found\n' "$yellow" "$reset"
 fi
 api=https://api.github.com/repos/godotengine/godot-builds/releases
+if [[ $mode == list ]] || { [[ -z $version && $mode == install ]] && $interactive; }; then
+    if [[ $mode == install ]]; then step 'Fetching available releases…'; fi
+    release=$(fetch "$api/latest")
+    latest=$(jq -er .tag_name <<<"$release")
+    releases=$(fetch "$api?per_page=30" | jq -c --arg arch "$arch" '
+        [.[] | . as $r | select(any(.assets[];
+            .name == ("Godot_v" + $r.tag_name + "_linux." + $arch + ".zip")))]')
+fi
 if [[ $mode == list ]]; then
-    latest=$(fetch "$api/latest" | jq -er .tag_name)
-    fetch "$api?per_page=30" | jq -r --arg arch "$arch" --arg latest "$latest" '
-        .[] | . as $release | select(any(.assets[]; .name == ("Godot_v" + $release.tag_name + "_linux." + $arch + ".zip")))
-        | [.tag_name, (if .tag_name == $latest then "latest stable" elif .prerelease then "unstable" else "stable" end)] | @tsv'
+    jq -r --arg latest "$latest" '
+        .[] | [.tag_name, (if .tag_name == $latest then "latest stable"
+            elif .prerelease then "unstable" else "stable" end)] | @tsv' <<<"$releases"
     exit
 fi
 if [[ -z $version && $mode == install ]] && $interactive; then
-    step 'Fetching available releases…'
-    latest=$(fetch "$api/latest" | jq -er .tag_name)
-    releases=$(fetch "$api?per_page=15")
-    mapfile -t tags < <(jq -r --arg latest "$latest" --arg arch "$arch" '
-        [$latest] + [.[] | . as $r
-        | select(.tag_name != $latest)
-        | select(any(.assets[]; .name == ("Godot_v" + $r.tag_name + "_linux." + $arch + ".zip")))
-        | .tag_name][:7] | .[]' <<<"$releases")
-    labels=()
-    for tag in "${tags[@]}"; do
-        if [[ $tag == "$latest" ]]; then labels+=("$tag · recommended")
-        elif [[ $tag == *-stable ]]; then labels+=("$tag · stable")
-        else labels+=("$tag · unstable"); fi
-    done
+    mapfile -t labels < <(jq -r --arg latest "$latest" '
+        [$latest + " · recommended"] + [.[] | select(.tag_name != $latest)
+            | .tag_name + (if .prerelease then " · unstable" else " · stable" end)][:7]
+        | .[]' <<<"$releases")
     choose 'Choose a release' "${labels[@]}"
-    version=${tags[selected]}
+    version=${labels[selected]%% *}
 fi
 if [[ -n $version ]]; then
     [[ $version != *-* ]] && version+=-stable
     [[ $version =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?-(stable|dev[0-9]+|beta[0-9]+|rc[0-9]+)$ ]] || fail 'Invalid release tag.'
-    release=$(fetch "$api/tags/$version")
+    if [[ $version != ${latest:-} ]]; then
+        release=$(fetch "$api/tags/$version")
+    fi
 else
     release=$(fetch "$api/latest")
 fi
@@ -140,7 +155,14 @@ if $interactive; then
     custom=false
     if [[ -z $scope && -z $dir ]]; then
         choose 'Install location' 'Only me · ~/.local/bin' 'All users · /usr/local/bin (sudo)' 'Custom directory · only me'
-        case $selected in 0) scope=--local ;; 1) scope=--global ;; 2) scope=--local; custom=true ;; esac
+        case $selected in
+            0) scope=--local ;;
+            1) scope=--global ;;
+            2)
+                scope=--local
+                custom=true
+                ;;
+        esac
     elif [[ -z $dir ]]; then
         choose 'Executable directory' 'Use the default directory' 'Choose a custom directory'
         [[ $selected != 1 ]] || custom=true
@@ -153,9 +175,11 @@ if $interactive; then
     fi
 fi
 if [[ $scope == --global ]]; then
-    dir=${dir:-/usr/local/bin}; data=/usr/local/share
+    dir=${dir:-/usr/local/bin}
+    data=/usr/local/share
 else
-    dir=${dir:-$HOME/.local/bin}; data=${XDG_DATA_HOME:-$HOME/.local/share}
+    dir=${dir:-$HOME/.local/bin}
+    data=${XDG_DATA_HOME:-$HOME/.local/share}
 fi
 for path in "$dir" "$data"; do
     [[ $path != *$'\n'* && $path != *$'\r'* && $path != *$'\t'* ]] || fail 'Paths cannot contain tabs or newlines.'
@@ -169,7 +193,10 @@ printf '  Executable  %s\n  Launcher    %s\n  Icon        %s\n' "$binary" "$laun
 if ! $yes; then
     $interactive || fail 'Use --yes and install options for noninteractive or TERM=dumb sessions.'
     choose 'Ready? Existing installation files will be replaced.' 'Cancel' 'Install Godot'
-    [[ $selected == 1 ]] || { echo 'Cancelled.'; exit 0; }
+    [[ $selected == 1 ]] || {
+        echo 'Cancelled.'
+        exit 0
+    }
 fi
 sudo_cmd=()
 if [[ $scope == --global && $EUID != 0 ]]; then
@@ -194,14 +221,14 @@ fi
 printf '%s✓%s Checksum verified\n' "$green" "$reset"
 step 'Installing editor, icon, and launcher…'
 # Extract only the expected binary, never arbitrary archive paths.
-unzip -p "$temp/godot.zip" "$name" > "$temp/godot"
+unzip -p "$temp/godot.zip" "$name" >"$temp/godot"
 base=https://raw.githubusercontent.com/godotengine/godot/$tag
 fetch "$base/misc/logo/icon.svg" -o "$temp/godot.svg" || fetch "$base/icon.svg" -o "$temp/godot.svg"
 # Desktop Exec quoting is independent of shell quoting.
 exec_path=${binary//%/%%}
 for char in '\' '"' '`' '$'; do exec_path=${exec_path//"$char"/"\\$char"}; done
 exec_path=${exec_path//\\/\\\\}
-cat > "$temp/godot.desktop" <<EOF
+cat >"$temp/godot.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Godot
