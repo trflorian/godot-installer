@@ -1,6 +1,0 @@
-[project]
-name = "godot-installer"
-version = "0.1.0"
-description = "A small Linux installer for the official Godot editor"
-requires-python = ">=3.10"
-dependencies = []
