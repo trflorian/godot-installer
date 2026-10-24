@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the official stable Godot editor for Linux; Python standard library only."""
+"""Install the official Godot editor for Linux; Python standard library only."""
 
 import argparse
 import hashlib
@@ -46,7 +46,8 @@ def main() -> None:
     scope.add_argument("--local", action="store_true", help="install for this user (default)")
     scope.add_argument("--global", dest="system", action="store_true", help="install for all users")
     parser.add_argument("--dir", help="executable directory (default: ~/.local/bin or /usr/local/bin)")
-    parser.add_argument("--version", help="stable version to install, e.g. 4.7.2 (default: latest)")
+    parser.add_argument("--version", help="release to install, e.g. 4.7.2 or 4.8-dev5 (default: latest stable)")
+    parser.add_argument("--list", action="store_true", help="list recent stable and unstable releases; no installation")
     parser.add_argument("--check", action="store_true", help="show available version without installing")
     parser.add_argument("-y", "--yes", action="store_true", help="use defaults and skip prompts")
     args = parser.parse_args()
@@ -56,13 +57,31 @@ def main() -> None:
     arch = architectures.get(platform.machine().lower())
     if not arch:
         parser.error(f"Unsupported architecture: {platform.machine()}")
-    tag = args.version.removesuffix("-stable") + "-stable" if args.version else None
-    if tag and not re.fullmatch(r"\d+\.\d+(?:\.\d+)?-stable", tag):
-        parser.error("--version must be a stable version such as 4.7.2")
+    target_dir = args.dir or ("/usr/local/bin" if args.system else "~/.local/bin")
+    candidates = [directory(target_dir) / "godot"]
+    if not (args.dir or args.local or args.system):
+        candidates = [Path(found)] + candidates if (found := shutil.which("godot")) else candidates
+    installed = next((path for path in candidates if path.is_file()), None)
+    if installed:
+        result = subprocess.run([str(installed), "--version"], capture_output=True, text=True, timeout=15, check=True)
+        print(f"Installed: {result.stdout.strip()} ({installed})")
+    else:
+        print("Installed: not found")
+    if args.list:
+        releases = json.loads(download(f"{RELEASES}?per_page=30"))
+        latest = json.loads(download(f"{RELEASES}/latest"))["tag_name"]
+        for item in releases:
+            if any(asset["name"] == f"Godot_v{item['tag_name']}_linux.{arch}.zip" for asset in item["assets"]):
+                label = "latest stable" if item["tag_name"] == latest else "unstable" if item["prerelease"] else "stable"
+                print(f"{item['tag_name']:<24} {label}")
+        return
+    tag = args.version
+    if tag and re.fullmatch(r"\d+\.\d+(?:\.\d+)?", tag):
+        tag += "-stable"
+    if tag and not re.fullmatch(r"\d+\.\d+(?:\.\d+)?-(?:stable|dev\d+|beta\d+|rc\d+)", tag):
+        parser.error("Use a release such as 4.7.2, 4.7.2-stable, or 4.8-dev5.")
     release = json.loads(download(f"{RELEASES}/tags/{tag}" if tag else f"{RELEASES}/latest"))
     tag = release["tag_name"]
-    if release["prerelease"] or not re.fullmatch(r"\d+\.\d+(?:\.\d+)?-stable", tag):
-        raise ValueError(f"Expected a stable release, received {tag!r}.")
     name = f"Godot_v{tag}_linux.{arch}"
     assets = {asset["name"]: asset for asset in release["assets"]}
     asset = assets.get(name + ".zip")
@@ -147,7 +166,7 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, URLError, ValueError, KeyError, BadZipFile, subprocess.CalledProcessError) as error:
+    except (OSError, URLError, ValueError, KeyError, BadZipFile, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         sys.exit(f"Error: {error}")
     except (KeyboardInterrupt, EOFError):
         sys.exit("Cancelled.")
