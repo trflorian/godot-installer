@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="assets/godot.svg" width="100" alt="Godot logo">
-</p>
-
-# Godot installer
+<h1><img src="assets/godot.svg" width="36" height="36" alt="Godot logo"> Godot installer</h1>
 
 Installs Godot on Linux with interactive version and location selection,
 checksum verification, and an application launcher.
