@@ -3,6 +3,12 @@
 One Bash script for Linux. Requires `curl`, `jq`, `unzip`, and GNU coreutils.
 Global installs use `sudo` when needed.
 
+Interactive setup uses arrow keys (or j/k) and Enter to choose a release and
+install location. Press q or Escape to cancel. It shows a summary before
+confirmation, colored status messages, and download progress. Set `NO_COLOR=1`
+to disable colors; redirected output stays plain. Use CLI flags with `--yes`
+for noninteractive or `TERM=dumb` sessions.
+
 ```sh
 ./install.sh                            # interactive setup
 ./install.sh --list                     # installed version + stable/unstable releases
@@ -24,5 +30,6 @@ against the official release checksum before installation. Add your executable
 directory to `PATH` if necessary.
 
 Builds come from [official Godot releases](https://github.com/godotengine/godot-builds/releases).
-The local default and directory override follow the approach of
+Selection menus take inspiration from [Gum](https://github.com/charmbracelet/gum),
+without requiring it. The local default and directory override follow the approach of
 [uv's installer](https://docs.astral.sh/uv/reference/installer/).
